@@ -12,6 +12,7 @@
 .PORT uart1_rx, 0x68
 .PORT leds, 0
 .PORT ram_page, 0xF0
+.PORT switches_port, 0x10
 
 .CONST incoming_string_page, 1
 .CONST coordinate_string_page, 2
@@ -25,18 +26,28 @@
 .CONST longitude_indicator_pos, longitude_record_pos + numeric_record_len + 1
 .CONST time_record_len, 6
 
+.CONST time_pos_in_memory, 0
+.CONST latitude_pos_in_memory, time_pos_in_memory + time_record_pos
+.CONST latitude_indicator_pos_in_memory, latitude_pos_in_memory + numeric_record_len
+.CONST longitude_pos_in_memory, latitude_indicator_pos_in_memory + 1
+.CONST longitude_indicator_pos_in_memory, longitude_pos_in_memory + numeric_record_len
+.CONST end_pos_in_memory, longitude_indicator_pos + 1
+
+
 
 .REG sF, control
 .REG sE, value
 .REG sD, char_to_write
 .REG sC, coursor_pos
-.REG sB, current_pos
-.REG sA, recv_char
-.REG s9, flow_control_flags 
-.REG s8, current_ram_pos
+.REG sB, recv_char
+.REG sA, flow_control_flags 
+.REG s9, current_ram_pos
 
 .DSEG
 	mesg_id: .DB "GPGGA"
+	mesg_time: .DB "TIME: "
+	mesg_lati: .DB "LATI: "
+	mesg_longi: .DB "LONG: "
 
 .CSEG 0x3FF
 	JUMP handle_irq
@@ -214,7 +225,146 @@ extract_data_from_string:
 	OUT s7, ram_page
 	STORE s0,  s6
 
+	CALL write_memory_content_to_lcd
+
 	RET
+
+
+
+write_memory_content_to_lcd:
+	
+/;	mesg_time: .DB "TIME: "
+	mesg_lati: .DB "LATI: "
+	mesg_longi: .DB "LONG: "
+;/	
+
+/;
+.CONST time_pos_in_memory, 0
+.CONST latitude_pos_in_memory, time_pos_in_memory + time_record_pos
+.CONST latitude_indicator_pos_in_memory, latitude_pos_in_memory + numeric_record_len
+.CONST longitude_pos_in_memory, latitude_indicator_pos_in_memory + 1
+.CONST longitude_indicator_pos, longitude_pos_in_memory + numeric_record_len
+.CONST end_pos_in_memory, longitude_indicator_pos + 1
+;/
+	
+
+	LOAD coursor_pos, 0x80
+	CALL set_coursor
+
+;	IN s5, switches_port
+;	TEST s5, 1
+	;JUMP Z, write_time
+	write_coords: 
+
+	;;;;;;;;latitude mesg
+
+	LOAD s5, 	0
+	OUT s5, ram_page
+	LOAD s6, mesg_lati
+	FETCH char_to_write, s6
+
+	write_memory_content_to_lcd_lati_mesg_loop:
+	CALL write_to_lcd
+	ADD s6, 1
+	FETCH char_to_write, s6
+	COMP char_to_write, 0
+	JUMP NZ, write_memory_content_to_lcd_lati_mesg_loop
+
+	
+	;;;;;;;;end of latitude mesg
+	;;;;;;;;latitude content
+
+	LOAD s5, 	coordinate_string_page
+	OUT s5, ram_page
+	LOAD s6, 	latitude_pos_in_memory
+
+	write_memory_content_to_lcd_lati_content_loop:
+	FETCH char_to_write, s6
+	CALL write_to_lcd
+	ADD s6, 1
+	COMP s6, latitude_indicator_pos_in_memory
+	JUMP NZ, write_memory_content_to_lcd_lati_content_loop
+
+	;;;;;;;;end latitude content
+
+	;;;;;;; indicator
+	FETCH char_to_write, s6
+	CALL write_to_lcd
+	ADD s6, 1
+	;;;;;;; end of indicator
+
+
+	LOAD coursor_pos, 0xC0
+	CALL set_coursor
+	
+		;;;;;;;;longitude mesg
+
+	LOAD s5, 	0
+	OUT s5, ram_page
+	LOAD s6, mesg_longi
+	FETCH char_to_write, s6
+
+	write_memory_content_to_lcd_longi_mesg_loop:
+	CALL write_to_lcd
+	ADD s6, 1
+	FETCH char_to_write, s6
+	COMP char_to_write, 0
+	JUMP NZ, write_memory_content_to_lcd_longi_mesg_loop
+
+	
+	;;;;;;;;end of longitude mesg
+	;;;;;;;;longitude content
+
+	LOAD s5, 	coordinate_string_page
+	OUT s5, ram_page
+	LOAD s6, 	longitude_pos_in_memory
+
+	write_memory_content_to_lcd_longi_content_loop:
+	FETCH char_to_write, s6
+	CALL write_to_lcd
+	ADD s6, 1
+	COMP s6, longitude_indicator_pos_in_memory
+	JUMP NZ, write_memory_content_to_lcd_longi_content_loop
+
+	;;;;;;;;end latitude content
+
+	;;;;;;; indicator
+	FETCH char_to_write, s6
+	CALL write_to_lcd
+	ADD s6, 1
+	;;;;;;; end of indicator
+	
+	
+	
+	JUMP end_write_memory_content_to_lcd_func
+	write_time:
+
+	LOAD s5, 	0
+	OUT s5, ram_page
+	LOAD s6, mesg_time
+	FETCH char_to_write, s6
+
+	write_memory_content_to_lcd_time_mesg_loop:
+	CALL write_to_lcd
+	ADD s6, 1
+	FETCH char_to_write, s6
+	COMP char_to_write, 0
+	JUMP NZ, write_memory_content_to_lcd_time_mesg_loop
+
+	LOAD s5, 	coordinate_string_page
+	OUT s5, ram_page
+	LOAD s6, 	time_pos_in_memory
+	write_memory_content_to_lcd_time_content_loop:
+	FETCH char_to_write, s6
+	CALL write_to_lcd
+	ADD s6, 1
+	COMP s6, latitude_pos_in_memory
+	JUMP NZ, write_memory_content_to_lcd_time_content_loop
+	
+	end_write_memory_content_to_lcd_func:
+
+	RET
+
 
 send:
 	OUT recv_char, uart0_tx
@@ -268,9 +418,20 @@ init_lcd:
 	OUT control, lcd_control
 	CALL opoznij_5m
 
-	LOAD current_pos, 0x0
 
 	RET
+
+write_to_lcd:
+	LOAD control, 0x3
+	LOAD value, char_to_write
+	OUT value, lcd_value
+	OUT control, lcd_control
+	_nop
+	LOAD control, 0x2
+	OUT control, lcd_control
+	CALL opoznij_40u
+	RET
+
 
 set_coursor:
 	LOAD control, 0x1
